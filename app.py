@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import io
 import time
+import base64
 
 # Page configuration
 st.set_page_config(
@@ -103,18 +104,67 @@ st.markdown("""
     
     /* Image sizing */
     .stImage {
-        max-width: 400px !important;
+        max-width: 500px !important;
         margin: 0 auto !important;
         display: block !important;
     }
     
     .stImage > img {
-        max-width: 400px !important;
-        max-height: 400px !important;
+        max-width: 500px !important;
+        max-height: 500px !important;
         width: auto !important;
         height: auto !important;
         border-radius: 8px;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .stImage > img:hover {
+        transform: scale(1.02);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+    }
+    
+    /* Fullscreen modal */
+    .fullscreen-modal {
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.95);
+        overflow: auto;
+    }
+    
+    .fullscreen-modal.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .fullscreen-content {
+        max-width: 95%;
+        max-height: 95%;
+        object-fit: contain;
+        border-radius: 10px;
+    }
+    
+    .close-fullscreen {
+        position: absolute;
+        top: 20px;
+        right: 40px;
+        color: #fff;
+        font-size: 40px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 10000;
+        transition: color 0.3s ease;
+    }
+    
+    .close-fullscreen:hover {
+        color: #ff6b6b;
     }
     
     /* Kernel matrix styling */
@@ -352,19 +402,19 @@ KERNELS = {
     },
     'sharpen': {
         'matrix': np.array([
-            [0, -1, 0],
-            [-1, 5, -1],
-            [0, -1, 0]
+            [-1, -1, -1],
+            [-1, 9, -1],
+            [-1, -1, -1]
         ], dtype=np.float32),
         'name': 'Sharpen',
         'explanation': """
-        **How it works:** The sharpen kernel emphasizes the center pixel (value: 5) while 
-        subtracting the neighboring pixels (-1). This amplifies differences between the center 
-        and its surroundings.
+        **How it works:** The sharpen kernel strongly emphasizes the center pixel (value: 9) while 
+        subtracting all 8 neighboring pixels (-1 each). This amplifies differences between the center 
+        pixel and its surroundings, creating a strong sharpening effect.
         
-        **Effect:** Enhances edges and fine details, making the image appear crisper and more defined.
+        **Effect:** Enhances edges and fine details significantly, making the image appear much crisper and more defined.
         
-        **Formula:** New_Pixel = 5×Center - (Top + Bottom + Left + Right)
+        **Formula:** New_Pixel = 9×Center - Sum(All 8 Neighbors)
         """,
         'icon': '✨'
     },
@@ -618,7 +668,7 @@ def format_kernel_display(kernel, name):
     kernel_str += "</pre></div>"
     return kernel_str
 
-def resize_image_for_display(image, max_width=400, max_height=400):
+def resize_image_for_display(image, max_width=500, max_height=500):
     """Resize image to fixed display size"""
     width, height = image.size
     
@@ -708,10 +758,53 @@ with col1:
     if uploaded_file is not None:
         # Load and display original image
         original_image = Image.open(uploaded_file)
-        display_original = resize_image_for_display(original_image)
+        display_original = resize_image_for_display(original_image, max_width=500, max_height=500)
         
-        st.markdown("<div class='image-label'>📸 Original Image</div>", unsafe_allow_html=True)
+        # Convert original image to base64 for fullscreen
+        buf_original = io.BytesIO()
+        original_image.save(buf_original, format='PNG')
+        orig_img_base64 = base64.b64encode(buf_original.getvalue()).decode()
+        
+        st.markdown("<div class='image-label'>📸 Original Image (Click to Enlarge)</div>", unsafe_allow_html=True)
+        
+        # Fullscreen modal for original image
+        st.markdown(f"""
+            <div id="fullscreenModalOrig" class="fullscreen-modal">
+                <span class="close-fullscreen" onclick="closeFullscreenOrig()">&times;</span>
+                <img class="fullscreen-content" src="data:image/png;base64,{orig_img_base64}">
+            </div>
+            
+            <div style='cursor: pointer;' onclick='openFullscreenOrig()' title='Click to view fullscreen'>
+        """, unsafe_allow_html=True)
+        
         st.image(display_original)
+        
+        st.markdown("""
+            </div>
+            
+            <script>
+            function openFullscreenOrig() {
+                document.getElementById('fullscreenModalOrig').classList.add('active');
+            }
+            
+            function closeFullscreenOrig() {
+                document.getElementById('fullscreenModalOrig').classList.remove('active');
+            }
+            
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    closeFullscreenOrig();
+                }
+            });
+            
+            document.getElementById('fullscreenModalOrig').addEventListener('click', function(event) {
+                if (event.target === this) {
+                    closeFullscreenOrig();
+                }
+            });
+            </script>
+        """, unsafe_allow_html=True)
+        
         st.markdown(f"""
         <div class='metric-card' style='margin-top: 0.5rem;'>
             <strong>Dimensions:</strong> {original_image.size[0]} × {original_image.size[1]} pixels
@@ -765,40 +858,55 @@ with col2:
         elif st.session_state.processed_image is not None:
             # Display processed image in the same box after animation is done
             with result_placeholder.container():
-                display_processed = resize_image_for_display(st.session_state.processed_image, max_width=450, max_height=450)
+                display_processed = resize_image_for_display(st.session_state.processed_image, max_width=500, max_height=500)
                 
                 st.markdown(f"""
-                    <div class='image-label'>✨ {st.session_state.filter_name}</div>
+                    <div class='image-label'>✨ {st.session_state.filter_name} (Click to Enlarge)</div>
                 """, unsafe_allow_html=True)
                 
-                # Display image with better styling
-                st.markdown("""
-                    <style>
-                    .processed-image-container {{
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        padding: 1rem;
-                        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-                        border-radius: 15px;
-                        margin: 1rem 0;
-                        box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-                        border: 2px solid #667eea;
-                        min-height: 400px;
-                    }}
-                    .processed-image-container img {{
-                        border-radius: 10px;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-                        max-width: 450px !important;
-                        max-height: 450px !important;
-                    }}
-                    </style>
-                    <div class='processed-image-container'>
+                # Convert image to base64 for fullscreen modal
+                buf_fullscreen = io.BytesIO()
+                st.session_state.processed_image.save(buf_fullscreen, format='PNG')
+                img_base64 = base64.b64encode(buf_fullscreen.getvalue()).decode()
+                
+                # Display image with fullscreen capability
+                st.markdown(f"""
+                    <!-- Fullscreen Modal -->
+                    <div id="fullscreenModal" class="fullscreen-modal">
+                        <span class="close-fullscreen" onclick="closeFullscreen()">&times;</span>
+                        <img class="fullscreen-content" id="fullscreenImg" src="data:image/png;base64,{img_base64}">
+                    </div>
+                    
+                    <div style='cursor: pointer;' onclick='openFullscreen()' title='Click to view fullscreen'>
                 """, unsafe_allow_html=True)
                 
                 st.image(display_processed)
                 
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("""
+                    </div>
+                    
+                    <script>
+                    function openFullscreen() {
+                        document.getElementById('fullscreenModal').classList.add('active');
+                    }
+                    
+                    function closeFullscreen() {
+                        document.getElementById('fullscreenModal').classList.remove('active');
+                    }
+                    
+                    document.addEventListener('keydown', function(event) {
+                        if (event.key === 'Escape') {
+                            closeFullscreen();
+                        }
+                    });
+                    
+                    document.getElementById('fullscreenModal').addEventListener('click', function(event) {
+                        if (event.target === this) {
+                            closeFullscreen();
+                        }
+                    });
+                    </script>
+                """, unsafe_allow_html=True)
                 
                 # Download button
                 buf = io.BytesIO()
